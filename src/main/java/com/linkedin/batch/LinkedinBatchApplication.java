@@ -35,9 +35,37 @@ public class LinkedinBatchApplication {
     }
 
     @Bean
-    public JobExecutionDecider isCorrectItem(){
+    public JobExecutionDecider receiptDecider(){
         return new ReceiptDecider();
     }
+
+    @Bean
+    public Step nestedBillingJobStep() {
+        return this.stepBuilderFactory.get("nestedBillingJobStep").job(billingJob()).build();
+    }
+
+    @Bean
+    public Step sendInvoiceStep() {
+        return this.stepBuilderFactory.get("invoiceStep").tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("Invoice is sent to the customer");
+                return RepeatStatus.FINISHED;
+            }
+        }).build();
+
+    }
+
+    @Bean
+    public Flow billingJob() {
+        return new FlowBuilder<SimpleFlow>("billingFlow").build();
+    }
+
+//    @Bean
+//    public Job billingJob() {
+//        return this.jobBuilderFactory.get("billingJob").start(sendInvoiceStep()).build();
+//    }
 
     @Bean
     public Flow deliveryFlow() {
@@ -50,12 +78,12 @@ public class LinkedinBatchApplication {
                 .on("PRESENT")
                 .to(givePackageToCustomerStep())
                 .on("*")
-                .to(isCorrectItem())
+                .to(receiptDecider())
                 .on("CORRECT")
                 .to(thankCustomerStep())
-                .from(isCorrectItem())
+                .from(receiptDecider())
                 .on("INCORRECT")
-                .to(giveRefundStep())
+                .to(refundStep())
                 .from(decider())
                 .on("NOT PRESENT")
                 .to(leaveAtDoorStep()).build();
@@ -125,7 +153,7 @@ public class LinkedinBatchApplication {
     }
 
     @Bean
-    public Step giveRefundStep() {
+    public Step refundStep() {
         return this.stepBuilderFactory.get("giveRefund").tasklet(new Tasklet() {
 
             @Override
@@ -204,6 +232,7 @@ public class LinkedinBatchApplication {
         return this.jobBuilderFactory.get("deliverPackageJob")
                 .start(packageItemStep())
                 .on("*").to(deliveryFlow())
+                .next(nestedBillingJobStep())
                 .end()
                 .build();
     }
