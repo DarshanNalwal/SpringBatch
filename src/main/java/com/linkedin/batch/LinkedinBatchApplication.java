@@ -3,10 +3,14 @@ package com.linkedin.batch;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.StepExecutionListener;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.job.builder.FlowBuilder;
+import org.springframework.batch.core.job.flow.Flow;
 import org.springframework.batch.core.job.flow.JobExecutionDecider;
+import org.springframework.batch.core.job.flow.support.SimpleFlow;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
@@ -33,6 +37,83 @@ public class LinkedinBatchApplication {
     @Bean
     public JobExecutionDecider isCorrectItem(){
         return new ReceiptDecider();
+    }
+
+    @Bean
+    public Flow deliveryFlow() {
+        return new FlowBuilder<SimpleFlow>("deliveryFlow").start(driveToAddressStep())
+                .on("FAILED")
+                .to(storePackageStep())
+                .from(driveToAddressStep())
+                .on("*")
+                .to(decider())
+                .on("PRESENT")
+                .to(givePackageToCustomerStep())
+                .on("*")
+                .to(isCorrectItem())
+                .on("CORRECT")
+                .to(thankCustomerStep())
+                .from(isCorrectItem())
+                .on("INCORRECT")
+                .to(giveRefundStep())
+                .from(decider())
+                .on("NOT PRESENT")
+                .to(leaveAtDoorStep()).build();
+    }
+
+    @Bean
+    public StepExecutionListener selectFlowerListener() {
+        return new FlowersSelectionStepExecutionListener();
+    }
+
+    @Bean
+    public Step selectFlowersStep() {
+        return this.stepBuilderFactory.get("selectFlowersStep").tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("Gathering flowers for order.");
+                return RepeatStatus.FINISHED;
+            }
+
+        }).listener(selectFlowerListener()).build();
+    }
+
+    @Bean
+    public Step removeThornsStep() {
+        return this.stepBuilderFactory.get("removeThornsStep").tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("Remove thorns from roses.");
+                return RepeatStatus.FINISHED;
+            }
+
+        }).build();
+    }
+
+    @Bean
+    public Step arrangeFlowersStep() {
+        return this.stepBuilderFactory.get("arrangeFlowersStep").tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("Arranging flowers for order.");
+                return RepeatStatus.FINISHED;
+            }
+
+        }).build();
+    }
+
+    @Bean
+    public Job prepareFlowersJob() {
+        return this.jobBuilderFactory.get("prepareFlowersJob")
+                .start(selectFlowersStep())
+                .on("TRIM_REQUIRED").to(removeThornsStep()).next(arrangeFlowersStep())
+                .from(selectFlowersStep()).on("NO_TRIM_REQUIRED").to(arrangeFlowersStep())
+                .from(arrangeFlowersStep()).on("*").to(deliveryFlow())
+                .end()
+                .build();
     }
 
     @Bean
